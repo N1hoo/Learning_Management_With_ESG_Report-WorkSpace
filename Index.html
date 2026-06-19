@@ -1,0 +1,1338 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Zarządzania Szkoleniami</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body { background-color: #f4f6f9; padding: 20px; font-family: Arial, sans-serif; }
+    .header-panel { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+    .main-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .training-row { cursor: pointer; transition: background 0.2s; }
+    .training-row:hover { background-color: #f1f3f5; }
+    .details-row { display: none; background-color: #f8f9fa; }
+    .participant-table { background: white; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); }
+    .required-asterisk { color: red; font-weight: bold; }
+    .action-icons i { cursor: pointer; font-size: 1.2rem; margin-right: 12px; transition: color 0.2s; }
+    .action-icons i.bi-trash:hover { color: #dc3545; }
+    .action-icons i.bi-pencil-square:hover { color: #0d6efd; }
+    .action-icons i.bi-printer:hover { color: #198754; }
+    .p-row .del-p-btn { visibility: hidden; color: #dc3545; cursor: pointer; }
+    .p-row:hover .del-p-btn { visibility: visible; }
+    .employee-select-row { cursor: pointer; transition: background 0.1s; }
+    .employee-select-row:hover { background-color: #e9ecef; }
+    .sortable-th { cursor: pointer; user-select: none; }
+    .sortable-th:hover { background-color: #e2e3e5; }
+    @media print {
+      body > :not(#printSection) { display: none !important; }
+      #printSection { display: block !important; width: 100%; margin: 0; padding: 0; }
+      @page { margin: 1.5cm; size: portrait; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container-fluid">
+  <div class="header-panel d-flex justify-content-between align-items-center flex-wrap gap-3">
+    
+    <div class="d-flex align-items-center">
+      <h2 class="mb-0 me-4"><i class="bi bi-mortarboard-fill text-primary"></i> <span data-i18n="app_title">System Szkoleń</span></h2>
+      <div class="input-group shadow-sm me-2" style="width: 160px;" id="rokFiltrContainer">
+        <span class="input-group-text bg-primary text-white"><i class="bi bi-calendar-event"></i></span>
+        <input type="number" id="rokFiltr" class="form-control fw-bold text-center" oninput="filtrujTabeleGlowna()" min="2020" max="2100">
+      </div>
+      <button class="btn btn-outline-secondary shadow-sm" onclick="otworzWyszukiwarke()" id="btnWyszukiwarka" title="Wyszukiwanie zaawansowane">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+
+    <div class="d-flex align-items-center">
+      <div class="dropdown me-3">
+        <button class="btn btn-light border shadow-sm dropdown-toggle fw-bold" type="button" data-bs-toggle="dropdown">
+          <i class="bi bi-globe text-primary"></i> <span id="currentLangLabel">PL</span>
+        </button>
+        <ul class="dropdown-menu">
+          <li><a class="dropdown-item" href="#" onclick="zmienJezyk('pl')">🇵🇱 Polski</a></li>
+          <li><a class="dropdown-item" href="#" onclick="zmienJezyk('en')">🇬🇧 English</a></li>
+          <li><a class="dropdown-item" href="#" onclick="zmienJezyk('it')">🇮🇹 Italiano</a></li>
+          <li><a class="dropdown-item" href="#" onclick="zmienJezyk('fr')">🇫🇷 Français</a></li>
+        </ul>
+      </div>
+
+      <button class="btn btn-info text-white btn-lg me-2" onclick="pokazWidokPracownikow()" id="btnWidokPracownika"><i class="bi bi-person-vcard"></i> <span data-i18n="emp_card">Karta Pracownika</span></button>
+      <button class="btn btn-outline-primary btn-lg me-2" id="btnEksport" onclick="pobierzRaportESG()"><i class="bi bi-file-earmark-excel"></i> <span data-i18n="export_year">Eksportuj rok</span></button>
+      <button class="btn btn-warning btn-lg me-2 shadow-sm text-dark" onclick="otworzModalImportu()"><i class="bi bi-file-earmark-spreadsheet"></i> Importuj Excel</button>
+      <button class="btn btn-success btn-lg" onclick="otworzModalSzkolenia()"><i class="bi bi-plus-circle"></i> <span data-i18n="add_training">Dodaj szkolenie</span></button>
+    </div>
+  </div>
+
+  <div id="mainLoader" class="text-center">
+    <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+    <h4 class="mt-3" data-i18n="loading_db">Ładowanie bazy danych...</h4>
+  </div>
+
+  <div id="trainingContainer" class="main-card" style="display: none;">
+    <h5 id="tytulTabeliSzkolen" class="mb-3 text-secondary" style="display: none;"><i class="bi bi-funnel-fill"></i> <span data-i18n="search_results">Wyniki wyszukiwania zaawansowanego:</span></h5>
+    <div class="table-responsive">
+      <table class="table table-bordered align-middle">
+        <thead class="table-dark">
+          <tr>
+            <th style="width: 105px;">ID</th>
+            <th data-i18n="col_title">Tytuł szkolenia</th>
+            <th style="width: 100px;" data-i18n="col_participants">Uczestnicy</th>
+            <th data-i18n="col_formula">Formuła</th>
+            <th data-i18n="col_category">Kategoria</th>
+            <th data-i18n="col_start_date">Data rozpoczęcia</th>
+            <th style="width: 140px;" data-i18n="col_length">Długość (h)</th>
+            <th style="width: 140px;" data-i18n="col_actions">Akcje</th>
+          </tr>
+        </thead>
+        <tbody id="trainingTableBody">
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="employeeContainer" class="main-card" style="display: none;">
+    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3">
+      <h3 class="text-primary mb-0"><i class="bi bi-person-lines-fill"></i> <span data-i18n="emp_history_title">Karta Historii Szkoleń Pracownika</span></h3>
+      <button class="btn btn-outline-secondary" onclick="pokazWidokGłowny()"><i class="bi bi-arrow-left"></i> <span data-i18n="back_to_trainings">Powrót do szkoleń</span></button>
+    </div>
+    
+    <div class="row mb-4 bg-light p-3 rounded">
+      <div class="col-md-6">
+        <label class="form-label fw-bold" data-i18n="search_emp_label">Wyszukaj i wybierz pracownika z bazy:</label>
+        <input type="text" class="form-control border-primary" id="pracownikWyszukiwarka" list="pracownicyDatalist" onchange="zaladujSzkoleniaPracownika()">
+        <datalist id="pracownicyDatalist"></datalist>
+      </div>
+      <div class="col-md-6 d-flex flex-column justify-content-end align-items-end text-end" id="employeeStats"></div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-bordered align-middle table-hover">
+        <thead class="table-secondary">
+          <tr>
+            <th class="sortable-th" style="width:110px;" onclick="sortujWidokPracownika('id')"><span data-i18n="course_id">ID Kursu</span> <i class="bi bi-arrow-down-up text-muted ms-1" style="font-size:0.8em"></i></th>
+            <th class="sortable-th" onclick="sortujWidokPracownika('tytul')"><span data-i18n="col_title">Tytuł szkolenia</span> <i class="bi bi-arrow-down-up text-muted ms-1" style="font-size:0.8em"></i></th>
+            <th class="sortable-th" onclick="sortujWidokPracownika('kategoria')"><span data-i18n="col_category">Kategoria</span> <i class="bi bi-arrow-down-up text-muted ms-1" style="font-size:0.8em"></i></th>
+            <th class="sortable-th" style="width:130px;" onclick="sortujWidokPracownika('dataStart')"><span data-i18n="start_date">Data Start</span> <i class="bi bi-arrow-down-up text-muted ms-1" style="font-size:0.8em"></i></th>
+            <th class="sortable-th" style="width:130px;" onclick="sortujWidokPracownika('dataKoniec')"><span data-i18n="end_date">Data Koniec</span> <i class="bi bi-arrow-down-up text-muted ms-1" style="font-size:0.8em"></i></th>
+            <th class="sortable-th" style="width:100px;" onclick="sortujWidokPracownika('godziny')"><span data-i18n="time_h">Czas (h)</span> <i class="bi bi-arrow-down-up text-muted ms-1" style="font-size:0.8em"></i></th>
+          </tr>
+        </thead>
+        <tbody id="employeeTrainingsTableBody">
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<div class="modal fade" id="importModal" data-bs-backdrop="static" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title"><i class="bi bi-file-earmark-spreadsheet-fill"></i> Import z pliku Excel (.xlsx, .ods)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body bg-light">
+        <div class="row mb-4 align-items-end">
+           <div class="col-md-5">
+              <label class="form-label fw-bold">1. Wybierz plik z listą obecności:</label>
+              <input type="file" class="form-control" id="importFileInput" accept=".xlsx, .xls, .ods" onchange="wczytajZPliku()">
+           </div>
+           <div class="col-md-5" id="sheetSelectDiv" style="display:none;">
+              <label class="form-label fw-bold">2. Wybierz arkusz do przerobienia:</label>
+              <select class="form-select border-primary" id="importSheetSelect"></select>
+           </div>
+           <div class="col-md-2" id="sheetProcessDiv" style="display:none;">
+              <button class="btn btn-primary w-100" onclick="przetworzArkusz()">Przetwórz</button>
+           </div>
+        </div>
+
+        <div id="importResultsArea" style="display:none;">
+          <hr>
+          <label class="form-label fw-bold mt-2">3. Wybierz, co zrobić z tymi danymi:</label>
+          <div class="input-group mb-3 shadow-sm border-warning">
+            <span class="input-group-text bg-warning text-dark"><i class="bi bi-database-add"></i></span>
+            <select class="form-select fw-bold" id="importTargetTraining" style="font-size:1.1rem;">
+               <option value="NEW" class="text-success fw-bold">➕ UTWÓRZ CAŁKIEM NOWE SZKOLENIE Z TĄ LISTĄ</option>
+               </select>
+          </div>
+
+          <p class="text-muted small">System automatycznie próbował dopasować pracowników po Imieniu i Nazwisku. 
+          <br>Jeśli widzisz czerwoną ramkę, kliknij i wybierz właściwą osobę z listy ręcznie.</p>
+          
+          <table class="table table-bordered table-sm align-middle bg-white">
+            <thead class="table-dark">
+              <tr>
+                <th style="width: 50px;">Status</th>
+                <th>Imię i Nazwisko (z pliku)</th>
+                <th>Dopasowany Pracownik (baza kadr)</th>
+                <th style="width: 100px;">Zsumowane (h)</th>
+                <th style="width: 60px;">Usuń</th>
+              </tr>
+            </thead>
+            <tbody id="importTableBody"></tbody>
+          </table>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+        <button type="button" class="btn btn-success" id="btnZapiszImport" style="display:none;" onclick="zapiszImport()"><i class="bi bi-check2-all"></i> Zatwierdź i Zapisz</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="searchModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-secondary text-white">
+        <h5 class="modal-title"><i class="bi bi-search"></i> <span data-i18n="adv_search_title">Wyszukiwanie Zaawansowane</span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="searchForm">
+          <p class="text-muted small" data-i18n="adv_search_desc">Wyszukiwarka omija filtr bieżącego roku i przeszukuje całą historię.</p>
+          <div class="mb-3">
+            <label class="form-label fw-bold" data-i18n="search_phrase">Szukana fraza</label>
+            <input type="text" class="form-control" id="searchFraza">
+          </div>
+          <div class="row mb-3">
+            <div class="col-6">
+              <label class="form-label fw-bold" data-i18n="date_from">Data kursu (Od)</label>
+              <input type="date" class="form-control" id="searchDataOd">
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-bold" data-i18n="date_to">Data kursu (Do)</label>
+              <input type="date" class="form-control" id="searchDataDo">
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <button type="button" class="btn btn-outline-danger" onclick="wyczyscWyszukiwarke()" data-i18n="clear_filters">Wyczyść filtry</button>
+        <div>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="cancel">Anuluj</button>
+          <button type="button" class="btn btn-primary" onclick="zastosujWyszukiwanie()"><i class="bi bi-funnel"></i> <span data-i18n="search_btn">Szukaj</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="addTrainingModal" data-bs-backdrop="static" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white" id="modalSzkoleniaNaglowek">
+        <h5 class="modal-title" id="modalSzkoleniaTytul"><i class="bi bi-file-earmark-plus"></i> <span data-i18n="creator_title">Kreator Nowego Szkolenia</span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="trainingForm">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label"><span data-i18n="col_title">Tytuł szkolenia</span> <span class="required-asterisk">*</span></label>
+              <input type="text" class="form-control" id="tytul" required>
+
+              <label class="form-label mt-3"><span data-i18n="instructor_type">Typ instruktora</span> <span class="required-asterisk">*</span></label>
+              <select class="form-select" id="typInstruktora" required><option value="">-- Wybierz --</option></select>
+
+              <label class="form-label mt-3"><span data-i18n="planning">Planowanie</span> <span class="required-asterisk">*</span></label>
+              <select class="form-select" id="planowanie" required><option value="">-- Wybierz --</option></select>
+              
+              <label class="form-label mt-3"><span data-i18n="col_category">Kategoria</span> <span class="required-asterisk">*</span></label>
+              <select class="form-select" id="kategoria" required><option value="">-- Wybierz --</option></select>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label"><span data-i18n="col_formula">Formuła szkolenia</span> <span class="required-asterisk">*</span></label>
+              <select class="form-select" id="formula" required><option value="">-- Wybierz --</option></select>
+
+              <label class="form-label mt-3"><span data-i18n="training_type">Typ szkolenia</span> <span class="required-asterisk">*</span></label>
+              <select class="form-select" id="typSzkolenia" required><option value="">-- Wybierz --</option></select>
+
+              <div class="card p-2 mt-3 bg-light border-primary">
+                <div class="form-check mb-1">
+                  <input class="form-check-input border-primary" type="checkbox" id="indywidualneGodziny" onchange="toggleIndywidualne()">
+                  <label class="form-check-label fw-bold text-primary" for="indywidualneGodziny" data-i18n="ind_hours">Indywidualna długość (h) dla uczestników</label>
+                </div>
+                <div class="form-check mb-3">
+                  <input class="form-check-input border-primary" type="checkbox" id="indywidualneDaty" onchange="toggleIndywidualne()">
+                  <label class="form-check-label fw-bold text-primary" for="indywidualneDaty" data-i18n="ind_dates">Indywidualne daty (start/koniec) dla uczestników</label>
+                </div>
+                <div class="row">
+                  <div class="col-4">
+                    <label class="form-label"><span data-i18n="start_date">Data rozpoczęcia</span> <span class="required-asterisk" id="req-daty">*</span></label>
+                    <input type="date" class="form-control" id="dataStart" onchange="document.getElementById('dataKoniec').value = this.value" required>
+                  </div>
+                  <div class="col-4">
+                    <label class="form-label" data-i18n="end_date">Data zakończenia</label>
+                    <input type="date" class="form-control" id="dataKoniec">
+                  </div>
+                  <div class="col-4">
+                    <label class="form-label"><span data-i18n="col_length">Długość (h)</span> <span class="required-asterisk" id="req-godziny">*</span></label>
+                    <input type="number" class="form-control" id="dlugosc" min="1" required>
+                  </div>
+                </div>
+              </div>
+
+              <div class="row mt-3">
+                <div class="col-12">
+                  <label class="form-label" data-i18n="certificate">Certyfikat</label>
+                  <input type="text" class="form-control" id="certyfikat">
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <hr class="mt-4">
+          <div class="d-flex justify-content-between align-items-center">
+            <h5><span data-i18n="participant_list">Lista Uczestników:</span> <span class="badge bg-secondary" id="licznikUczestnikow">0</span></h5>
+            <button type="button" class="btn btn-outline-primary" onclick="otworzModalPracownikow()"><i class="bi bi-person-lines-fill"></i> <span data-i18n="add_employees">Dodaj pracowników</span></button>
+          </div>
+          <div id="listaWybranychUczestnikow" class="mt-2 p-2 border rounded bg-light" style="min-height: 100px; max-height: 350px; overflow-y: auto;">
+            <p class="text-muted text-center mt-3" id="pustyKoszykInfo" data-i18n="empty_cart">Brak dodanych uczestników. Kliknij przycisk wyżej.</p>
+            <table class="table table-sm align-middle" id="tabelaKoszyka" style="display:none;">
+              <thead id="tabelaKoszykaHead"></thead>
+              <tbody id="tbodyKoszyka"></tbody>
+            </table>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="cancel">Anuluj</button>
+        <button type="button" class="btn btn-success" id="btnZapiszSzkolenie" onclick="zapiszSzkolenie()"><i class="bi bi-cloud-upload"></i> <span data-i18n="save_db">Zapisz szkolenie do bazy</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="addEmployeeModal" data-bs-backdrop="static" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-dark text-white">
+        <h5 class="modal-title"><i class="bi bi-search"></i> <span data-i18n="hr_db">Baza Kadr</span></h5>
+      </div>
+      <div class="modal-body">
+        <div class="row mb-3">
+          <div class="col-12">
+            <input type="text" id="wyszukiwarkaPracownikow" class="form-control form-control-lg" onkeyup="filtrujTabelePracownikow()">
+          </div>
+        </div>
+        <div id="employeeLoader" class="text-center my-4" style="display: none;">
+          <div class="spinner-border text-secondary" role="status"></div>
+          <p data-i18n="fetching_emp">Pobieranie listy pracowników...</p>
+        </div>
+        <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+          <table class="table table-hover table-sm border" id="tabelaWszystkichPracownikow">
+            <thead class="table-light sticky-top">
+              <tr>
+                <th style="width: 40px;"><input type="checkbox" id="checkAll" onclick="toggleWszystkieCheckboxy(this)"></th>
+                <th>ID</th>
+                <th data-i18n="name">Imię</th>
+                <th data-i18n="surname">Nazwisko</th>
+                <th data-i18n="position">Stanowisko</th>
+                <th data-i18n="department">Dział</th>
+                <th data-i18n="shift">Zmiana</th>
+              </tr>
+            </thead>
+            <tbody id="employeeTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="anulujWybieraniePracownikow()" data-i18n="cancel">Anuluj</button>
+        <button type="button" class="btn btn-success" onclick="zatwierdzUczestnikow()"><i class="bi bi-check-circle"></i> <span data-i18n="confirm_emp">Zatwierdź uczestników</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="printSection" style="display: none;"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  const translations = {
+    pl: {
+      app_title: "System Szkoleń", emp_card: "Karta Pracownika", export_year: "Eksportuj rok", add_training: "Dodaj szkolenie", loading_db: "Ładowanie bazy danych...", search_results: "Wyniki wyszukiwania zaawansowanego:", col_title: "Tytuł szkolenia", col_participants: "Uczestnicy", col_formula: "Formuła", col_category: "Kategoria", col_start_date: "Data rozpoczęcia", col_length: "Długość (h)", col_actions: "Akcje", emp_history_title: "Karta Historii Szkoleń Pracownika", back_to_trainings: "Powrót do szkoleń", search_emp_label: "Wyszukaj i wybierz pracownika z bazy:", course_id: "ID Kursu", start_date: "Data Start", end_date: "Data Koniec", time_h: "Czas (h)", adv_search_title: "Wyszukiwanie Zaawansowane", adv_search_desc: "Wyszukiwarka omija filtr bieżącego roku i przeszukuje całą historię.", search_phrase: "Szukana fraza", date_from: "Data kursu (Od)", date_to: "Data kursu (Do)", clear_filters: "Wyczyść filtry", cancel: "Anuluj", search_btn: "Szukaj", creator_title: "Kreator Nowego Szkolenia", instructor_type: "Typ instruktora", planning: "Planowanie", training_type: "Typ szkolenia", ind_hours: "Indywidualna długość (h) dla uczestników", ind_dates: "Indywidualne daty (start/koniec) dla uczestników", certificate: "Certyfikat", participant_list: "Lista Uczestników:", add_employees: "Dodaj pracowników", empty_cart: "Brak dodanych uczestników. Kliknij przycisk wyżej.", save_db: "Zapisz szkolenie do bazy", hr_db: "Baza Kadr", fetching_emp: "Pobieranie listy pracowników...", emp_id: "ID Pracownika", name: "Imię", surname: "Nazwisko", position: "Stanowisko", department: "Dział", shift: "Zmiana", confirm_emp: "Zatwierdź uczestników",
+      js_no_results: "Brak wyników do wyświetlenia.", js_no_trainings: "Brak szkoleń w bazie dla tego roku.", js_individual: "Indywidualne", js_individual_f: "Indywidualna", js_no_participants: "Brak uczestników.", js_options: "Opcje", js_search_emp_ph: "Zacznij wpisywać nazwisko lub ID...", js_search_ph: "np. tytuł kursu, ID, nazwisko...", js_search_hr_ph: "Szukaj (np. kowalski produkcja)...", js_found_trainings: "Znaleziono szkoleń:", js_total_time: "Łączny czas (h):", js_emp_no_trainings: "Ten pracownik nie ma zarejestrowanych szkoleń.", js_delete_confirm: "Czy usunąć szkolenie ID: ", js_date_error: "W formularzu data zakończenia nie może być mniejsza od daty rozpoczęcia!", js_date_error_emp: " ma datę końca wcześniejszą niż start!", js_processing: "Przetwarzanie bazy...", js_saved: "Zmiany zostały pomyślnie zapisane!", js_saved_new: "Szkolenie zapisane! Przydzielono ID: ", js_error: "Błąd operacji: ", js_generating: "Generowanie Excela...", js_prompt_year: "Podaj rok (np. 2026), za który chcesz wygenerować raport:"
+    },
+    en: {
+      app_title: "Training System", emp_card: "Employee Card", export_year: "Export Year", add_training: "Add Training", loading_db: "Loading database...", search_results: "Advanced search results:", col_title: "Training Title", col_participants: "Participants", col_formula: "Modality", col_category: "Category", col_start_date: "Start Date", col_length: "Length (h)", col_actions: "Actions", emp_history_title: "Employee Training History", back_to_trainings: "Back to trainings", search_emp_label: "Search and select employee from DB:", course_id: "Course ID", start_date: "Start Date", end_date: "End Date", time_h: "Time (h)", adv_search_title: "Advanced Search", adv_search_desc: "Search bypasses the current year filter and searches all history.", search_phrase: "Search phrase", date_from: "Course Date (From)", date_to: "Course Date (To)", clear_filters: "Clear filters", cancel: "Cancel", search_btn: "Search", creator_title: "New Training Creator", instructor_type: "Instructor Type", planning: "Planning", training_type: "Training Type", ind_hours: "Individual length (h) for participants", ind_dates: "Individual dates (start/end) for participants", certificate: "Certificate", participant_list: "Participant List:", add_employees: "Add employees", empty_cart: "No participants added. Click the button above.", save_db: "Save to database", hr_db: "HR Database", fetching_emp: "Fetching employee list...", emp_id: "Employee ID", name: "Name", surname: "Surname", position: "Position", department: "Department", shift: "Shift", confirm_emp: "Confirm participants",
+      js_no_results: "No results to display.", js_no_trainings: "No trainings in database for this year.", js_individual: "Individual", js_individual_f: "Individual", js_no_participants: "No participants.", js_options: "Options", js_search_emp_ph: "Start typing surname or ID...", js_search_ph: "e.g. course title, ID, surname...", js_search_hr_ph: "Search (e.g. smith production)...", js_found_trainings: "Trainings found:", js_total_time: "Total time (h):", js_emp_no_trainings: "This employee has no registered trainings.", js_delete_confirm: "Delete training ID: ", js_date_error: "End date cannot be earlier than start date!", js_date_error_emp: " has an end date earlier than start date!", js_processing: "Processing database...", js_saved: "Changes saved successfully!", js_saved_new: "Training saved! ID assigned: ", js_error: "Operation error: ", js_generating: "Generating Excel...", js_prompt_year: "Enter the year (e.g. 2026) to generate the report for:"
+    },
+    it: {
+      app_title: "Sistema Formazione", emp_card: "Scheda Dipendente", export_year: "Esporta Anno", add_training: "Aggiungi", loading_db: "Caricamento database...", search_results: "Risultati ricerca avanzata:", col_title: "Titolo Corso", col_participants: "Partecipanti", col_formula: "Modalità", col_category: "Categoria", col_start_date: "Data Inizio", col_length: "Durata (h)", col_actions: "Azioni", emp_history_title: "Storico Formazione Dipendente", back_to_trainings: "Torna ai corsi", search_emp_label: "Cerca e seleziona dipendente:", course_id: "ID Corso", start_date: "Data Inizio", end_date: "Data Fine", time_h: "Tempo (h)", adv_search_title: "Ricerca Avanzata", adv_search_desc: "La ricerca ignora il filtro anno e cerca in tutto lo storico.", search_phrase: "Frase di ricerca", date_from: "Data (Da)", date_to: "Data (A)", clear_filters: "Cancella filtri", cancel: "Annulla", search_btn: "Cerca", creator_title: "Creatore Nuovo Corso", instructor_type: "Tipo Istruttore", planning: "Pianificazione", training_type: "Tipo Formazione", ind_hours: "Durata individuale (h) per partecipanti", ind_dates: "Date individuali per partecipanti", certificate: "Certificato", participant_list: "Lista Partecipanti:", add_employees: "Aggiungi dipendenti", empty_cart: "Nessun partecipante. Clicca il pulsante sopra.", save_db: "Salva nel database", hr_db: "Database HR", fetching_emp: "Recupero lista dipendenti...", emp_id: "ID Dipendente", name: "Nome", surname: "Cognome", position: "Posizione", department: "Dipartimento", shift: "Turno", confirm_emp: "Conferma",
+      js_no_results: "Nessun risultato da mostrare.", js_no_trainings: "Nessun corso in questo anno.", js_individual: "Individuale", js_individual_f: "Individuale", js_no_participants: "Nessun partecipante.", js_options: "Opzioni", js_search_emp_ph: "Inizia a digitare cognome o ID...", js_search_ph: "es. titolo corso, ID, cognome...", js_search_hr_ph: "Cerca (es. rossi produzione)...", js_found_trainings: "Corsi trovati:", js_total_time: "Tempo totale (h):", js_emp_no_trainings: "Questo dipendente non ha corsi.", js_delete_confirm: "Eliminare corso ID: ", js_date_error: "La data fine non può essere precedente all'inizio!", js_date_error_emp: " ha una data fine precedente all'inizio!", js_processing: "Elaborazione...", js_saved: "Modifiche salvate con successo!", js_saved_new: "Corso salvato! ID assegnato: ", js_error: "Errore: ", js_generating: "Generazione Excel...", js_prompt_year: "Inserisci l'anno per il report:"
+    },
+    fr: {
+      app_title: "Système de Formation", emp_card: "Fiche Employé", export_year: "Exporter Année", add_training: "Ajouter", loading_db: "Chargement de la base...", search_results: "Résultats de la recherche:", col_title: "Titre de la formation", col_participants: "Participants", col_formula: "Modalité", col_category: "Catégorie", col_start_date: "Date de début", col_length: "Durée (h)", col_actions: "Actions", emp_history_title: "Historique de Formation", back_to_trainings: "Retour aux formations", search_emp_label: "Chercher l'employé:", course_id: "ID Cours", start_date: "Date Début", end_date: "Date Fin", time_h: "Temps (h)", adv_search_title: "Recherche Avancée", adv_search_desc: "La recherche ignore le filtre annuel et cherche partout.", search_phrase: "Phrase de recherche", date_from: "Date (De)", date_to: "Date (À)", clear_filters: "Effacer les filtres", cancel: "Annuler", search_btn: "Chercher", creator_title: "Créateur de Formation", instructor_type: "Type d'Instructeur", planning: "Planification", training_type: "Type de Formation", ind_hours: "Durée individuelle (h)", ind_dates: "Dates individuelles", certificate: "Certificat", participant_list: "Liste des Participants:", add_employees: "Ajouter employés", empty_cart: "Aucun participant ajouté.", save_db: "Enregistrer", hr_db: "Base de données RH", fetching_emp: "Récupération des employés...", emp_id: "ID Employé", name: "Prénom", surname: "Nom", position: "Poste", department: "Département", shift: "Quart", confirm_emp: "Confirmer",
+      js_no_results: "Aucun résultat à afficher.", js_no_trainings: "Aucune formation pour cette année.", js_individual: "Individuel", js_individual_f: "Individuelle", js_no_participants: "Aucun participant.", js_options: "Options", js_search_emp_ph: "Tapez un nom ou un ID...", js_search_ph: "ex. titre du cours, ID, nom...", js_search_hr_ph: "Rechercher...", js_found_trainings: "Formations trouvées:", js_total_time: "Temps total (h):", js_emp_no_trainings: "Cet employé n'a pas de formations.", js_delete_confirm: "Supprimer la formation ID: ", js_date_error: "La date de fin ne peut pas être avant le début!", js_date_error_emp: " a une date de fin avant le début!", js_processing: "Traitement en cours...", js_saved: "Modifications enregistrées!", js_saved_new: "Formation enregistrée! ID: ", js_error: "Erreur: ", js_generating: "Génération Excel...", js_prompt_year: "Entrez l'année pour le rapport:"
+    }
+  };
+
+  let currentLang = 'en'; 
+  function wykryjJezykPrzegladarki() {
+    let savedLang = localStorage.getItem('lms_lang');
+    if (savedLang && translations[savedLang]) return savedLang;
+    let browserLang = (navigator.language || navigator.userLanguage || '').substring(0, 2).toLowerCase();
+    if (translations[browserLang]) return browserLang;
+    return 'en'; 
+  }
+  function zmienJezyk(lang) {
+    if (!translations[lang]) return;
+    currentLang = lang; localStorage.setItem('lms_lang', lang); zastosujTlumaczenia();
+    document.getElementById('currentLangLabel').innerText = lang.toUpperCase();
+    filtrujTabeleGlowna(); 
+    if (document.getElementById('employeeContainer').style.display === 'block') renderujHistoriePracownika();
+  }
+  function txt(key) { return translations[currentLang][key] || key; }
+  function zastosujTlumaczenia() {
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      if (translations[currentLang][key]) el.innerText = translations[currentLang][key];
+    });
+    document.getElementById('pracownikWyszukiwarka').placeholder = txt('js_search_emp_ph');
+    document.getElementById('searchFraza').placeholder = txt('js_search_ph');
+    document.getElementById('wyszukiwarkaPracownikow').placeholder = txt('js_search_hr_ph');
+  }
+
+  // ================= STANDARDOWA LOGIKA =================
+  let modalSzkolenia, modalPracownikow, modalSzukaj, modalImportu;
+  let bazaPracownikow = [], wybraniUczestnicy = [], bazaSzkolenCache = []; 
+  let currentEditingTrainingId = null; 
+  let sortowanieKoszyka = { pole: '', kierunek: 'asc' }; 
+  let filtrZaawansowany = { aktywny: false, fraza: '', dataOd: '', dataDo: '' };
+  
+  // Zmienna dla importera Excel
+  let zaimportowanyExcelWIP = []; 
+
+  window.onload = function() {
+    currentLang = wykryjJezykPrzegladarki();
+    zastosujTlumaczenia();
+    document.getElementById('currentLangLabel').innerText = currentLang.toUpperCase();
+    document.getElementById('rokFiltr').value = new Date().getFullYear();
+    
+    modalSzkolenia = new bootstrap.Modal(document.getElementById('addTrainingModal'));
+    modalPracownikow = new bootstrap.Modal(document.getElementById('addEmployeeModal'));
+    modalSzukaj = new bootstrap.Modal(document.getElementById('searchModal'));
+    modalImportu = new bootstrap.Modal(document.getElementById('importModal'));
+    
+    google.script.run.withSuccessHandler(zaladujSlowniki).withFailureHandler(pokazBlad).getDictionaries();
+    google.script.run.withSuccessHandler(zaladujBazePracownikowInit).getEmployees();
+  };
+
+  function pokazBlad(error) {
+    document.getElementById('mainLoader').innerHTML = `<h4 style="color:red;">Błąd krytyczny: ${error.message}</h4>`;
+  }
+
+  function zaladujSlowniki(dicts) {
+    wypelnijSelect('typInstruktora', dicts.instruktor);
+    wypelnijSelect('planowanie', dicts.planowanie);
+    wypelnijSelect('formula', dicts.formula);
+    wypelnijSelect('typSzkolenia', dicts.typ);
+    wypelnijSelect('kategoria', dicts.kategoria);
+    odswiezTabeleGlowna();
+  }
+
+  function zaladujBazePracownikowInit(pracownicy) {
+    bazaPracownikow = pracownicy.sort((a, b) => {
+      let cmpNazw = String(a.nazwisko).localeCompare(String(b.nazwisko), 'pl');
+      if (cmpNazw !== 0) return cmpNazw;
+      let cmpImie = String(a.imie).localeCompare(String(b.imie), 'pl');
+      if (cmpImie !== 0) return cmpImie;
+      return String(a.id).localeCompare(String(b.id), 'pl');
+    });
+    
+    const dl = document.getElementById('pracownicyDatalist');
+    dl.innerHTML = '';
+    bazaPracownikow.forEach(p => {
+      let opt = document.createElement('option');
+      opt.value = `${p.nazwisko} ${p.imie} (${p.id})`;
+      dl.appendChild(opt);
+    });
+  }
+
+  function wypelnijSelect(idSelecta, tablicaDanych) {
+    const sel = document.getElementById(idSelecta);
+    tablicaDanych.forEach(element => {
+      let opt = document.createElement('option');
+      opt.value = element;
+      opt.innerHTML = element;
+      sel.appendChild(opt);
+    });
+  }
+
+  function odswiezTabeleGlowna() {
+    document.getElementById('mainLoader').style.display = 'block';
+    document.getElementById('trainingContainer').style.display = 'none';
+    google.script.run.withSuccessHandler(rysujTabeleSzkolen).withFailureHandler(pokazBlad).getMainTableData();
+  }
+
+  function rysujTabeleSzkolen(trainings) {
+    bazaSzkolenCache = trainings; 
+    filtrujTabeleGlowna(); 
+  }
+
+  function otworzWyszukiwarke() { modalSzukaj.show(); }
+
+  function zastosujWyszukiwanie() {
+    filtrZaawansowany.fraza = document.getElementById('searchFraza').value.toLowerCase().trim();
+    filtrZaawansowany.dataOd = document.getElementById('searchDataOd').value;
+    filtrZaawansowany.dataDo = document.getElementById('searchDataDo').value;
+    
+    if (filtrZaawansowany.fraza || filtrZaawansowany.dataOd || filtrZaawansowany.dataDo) {
+      filtrZaawansowany.aktywny = true;
+      document.getElementById('btnWyszukiwarka').classList.replace('btn-outline-secondary', 'btn-warning');
+      document.getElementById('tytulTabeliSzkolen').style.display = 'block';
+    } else {
+      filtrZaawansowany.aktywny = false;
+      document.getElementById('btnWyszukiwarka').classList.replace('btn-warning', 'btn-outline-secondary');
+      document.getElementById('tytulTabeliSzkolen').style.display = 'none';
+    }
+    modalSzukaj.hide();
+    filtrujTabeleGlowna();
+  }
+
+  function wyczyscWyszukiwarke() {
+    document.getElementById('searchForm').reset();
+    filtrZaawansowany = { aktywny: false, fraza: '', dataOd: '', dataDo: '' };
+    document.getElementById('btnWyszukiwarka').classList.replace('btn-warning', 'btn-outline-secondary');
+    document.getElementById('tytulTabeliSzkolen').style.display = 'none';
+    modalSzukaj.hide();
+    filtrujTabeleGlowna();
+  }
+
+  function filtrujTabeleGlowna() {
+    const wybranyRok = document.getElementById('rokFiltr').value;
+    let filtrowaneSzkolenia = [];
+
+    if (filtrZaawansowany.aktywny) {
+      filtrowaneSzkolenia = bazaSzkolenCache.filter(t => {
+        let passFraza = true, passData = true;
+        if (filtrZaawansowany.fraza) {
+          const szukaneSlowa = filtrZaawansowany.fraza.split(/\s+/);
+          passFraza = szukaneSlowa.every(slowo => {
+            const tytulMatch = String(t.tytul).toLowerCase().includes(slowo);
+            const idMatch = String(t.id).toLowerCase().includes(slowo);
+            const uczMatch = t.participants.some(p => 
+              String(p.nazwisko).toLowerCase().includes(slowo) || String(p.imie).toLowerCase().includes(slowo) || String(p.id).includes(slowo)
+            );
+            return tytulMatch || idMatch || uczMatch;
+          });
+        }
+        if (filtrZaawansowany.dataOd || filtrZaawansowany.dataDo) {
+          let datyDoSpr = [new Date(t.dataStart).getTime()];
+          if (t.dataKoniec) datyDoSpr.push(new Date(t.dataKoniec).getTime());
+          if (t.indywidualneDaty) {
+             t.participants.forEach(p => {
+               if (p.dataStart) datyDoSpr.push(new Date(p.dataStart).getTime());
+               if (p.dataKoniec) datyDoSpr.push(new Date(p.dataKoniec).getTime());
+             });
+          }
+          datyDoSpr = datyDoSpr.filter(x => !isNaN(x));
+          let minD = "", maxD = "";
+          if (datyDoSpr.length > 0) {
+             minD = new Date(Math.min(...datyDoSpr)).toISOString().split('T')[0];
+             maxD = new Date(Math.max(...datyDoSpr)).toISOString().split('T')[0];
+          }
+          if (filtrZaawansowany.dataOd && minD && minD < filtrZaawansowany.dataOd) passData = false;
+          if (filtrZaawansowany.dataDo && maxD && maxD > filtrZaawansowany.dataDo) passData = false;
+        }
+        return passFraza && passData;
+      });
+    } else {
+      filtrowaneSzkolenia = bazaSzkolenCache.filter(t => String(t.id).startsWith(`TR/${wybranyRok}/`));
+    }
+    
+    const tbody = document.getElementById('trainingTableBody');
+    tbody.innerHTML = ''; 
+    
+    if (filtrowaneSzkolenia.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-5"><i class="bi bi-folder-x fs-1"></i><br>${filtrZaawansowany.aktywny ? txt('js_no_results') : txt('js_no_trainings')}</td></tr>`;
+    } else {
+      filtrowaneSzkolenia.forEach(t => {
+        let dStart = '';
+        if (t.dataStart) {
+          let parsedDate = new Date(t.dataStart);
+          dStart = !isNaN(parsedDate.getTime()) ? parsedDate.toLocaleDateString('pl-PL') : t.dataStart;
+        }
+        let wyswietlanaDataStart = t.indywidualneDaty ? `<span class="text-muted fst-italic">${txt('js_individual')}</span>` : dStart;
+        let wyswietlanaDlugosc = t.indywidualneGodziny ? `<span class="text-muted fst-italic">${txt('js_individual_f')}</span>` : t.dlugosc;
+
+        let row = document.createElement('tr');
+        row.className = 'training-row';
+        row.setAttribute('onclick', `toggleRozwiniecie('${t.id}')`);
+        row.innerHTML = `
+          <td><span class="badge bg-primary">${t.id}</span></td>
+          <td class="fw-bold">${t.tytul}</td>
+          <td class="text-center"><span class="badge bg-info text-dark">${t.participants.length}</span></td>
+          <td>${t.formula}</td>
+          <td>${t.kategoria}</td>
+          <td>${wyswietlanaDataStart}</td>
+          <td>${wyswietlanaDlugosc}</td>
+          <td class="action-icons" onclick="event.stopPropagation();">
+            <i class="bi bi-printer text-success" onclick="drukujListe('${t.id}')" title="Drukuj listę obecności"></i>
+            <i class="bi bi-pencil-square text-primary" onclick="otworzEdycjeSzkolenia('${t.id}')"></i>
+            <i class="bi bi-trash text-danger" onclick="potwierdzUsuniecie('${t.id}')"></i>
+          </td>
+        `;
+        tbody.appendChild(row);
+        
+        let detailsRow = document.createElement('tr');
+        detailsRow.id = `details-${t.id}`;
+        detailsRow.className = 'details-row';
+        
+        let pListHtml = '';
+        if (t.participants.length === 0) {
+          pListHtml = `<p class="text-muted my-2 text-center">${txt('js_no_participants')}</p>`;
+        } else {
+          pListHtml = `
+            <table class="table table-sm table-bordered participant-table mb-2">
+              <thead class="table-light">
+                <tr>
+                  <th>${txt('emp_id')}</th>
+                  <th>${txt('name')}</th>
+                  <th>${txt('surname')}</th>
+                  <th>${txt('department')}</th>
+                  ${t.indywidualneDaty ? `<th class="bg-warning text-dark">${txt('start_date')}</th><th class="bg-warning text-dark">${txt('end_date')}</th>` : ''}
+                  ${t.indywidualneGodziny ? `<th class="bg-warning text-dark">${txt('time_h')}</th>` : ''}
+                </tr>
+              </thead>
+              <tbody>
+                ${t.participants.map(p => {
+                  let pStartFmt = p.dataStart ? new Date(p.dataStart).toLocaleDateString('pl-PL') : '';
+                  let pKoniecFmt = p.dataKoniec ? new Date(p.dataKoniec).toLocaleDateString('pl-PL') : '';
+                  return `
+                  <tr class="p-row">
+                    <td>${p.id}</td><td>${p.imie}</td><td>${p.nazwisko}</td><td>${p.dzial}</td>
+                    ${t.indywidualneDaty ? `<td>${pStartFmt}</td><td>${pKoniecFmt}</td>` : ''}
+                    ${t.indywidualneGodziny ? `<td><strong>${p.godziny}</strong></td>` : ''}
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>`;
+        }
+        detailsRow.innerHTML = `<td colspan="8" class="p-3"><div class="card card-body"><h6 class="fw-bold border-bottom pb-2 text-secondary"><i class="bi bi-people-fill"></i> ${txt('col_participants')}:</h6>${pListHtml}</div></td>`;
+        tbody.appendChild(detailsRow);
+      });
+    }
+    document.getElementById('mainLoader').style.display = 'none';
+    document.getElementById('trainingContainer').style.display = 'block';
+  }
+
+  // ================= DRUKOWANIE LISTY OBECNOŚCI =================
+  function drukujListe(trainingId) {
+    const t_item = bazaSzkolenCache.find(item => item.id.toString() === trainingId.toString());
+    if(!t_item) return;
+
+    let html = `
+      <div style="font-family: 'Times New Roman', Times, serif; color: #000;">
+        <h2 style="text-align: center; font-weight: bold; margin-bottom: 30px;">Lista obecności</h2>
+        <div style="margin-bottom: 20px; font-size: 16px;">
+          <div style="margin-bottom: 5px;"><strong>Tytuł szkolenia:</strong> ${t_item.tytul}</div>
+          <div><strong>Nr szkolenia:</strong> ${t_item.id}</div>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px; text-align: left;">
+          <thead>
+            <tr>
+              <th style="border: 1px solid #000; padding: 8px;">Lp.</th>
+              <th style="border: 1px solid #000; padding: 8px;">Imię</th>
+              <th style="border: 1px solid #000; padding: 8px;">Nazwisko</th>
+              <th style="border: 1px solid #000; padding: 8px;">Dział</th>
+              <th style="border: 1px solid #000; padding: 8px;">Data (start)</th>
+              <th style="border: 1px solid #000; padding: 8px;">Data (koniec)</th>
+              <th style="border: 1px solid #000; padding: 8px; text-align: center;">Liczba godzin</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    if (t_item.participants.length === 0) {
+      html += `<tr><td colspan="7" style="border: 1px solid #000; padding: 10px; text-align: center;">Brak dodanych uczestników</td></tr>`;
+    } else {
+      let sortedParticipants = [...t_item.participants].sort((a,b) => {
+        let cmp = String(a.nazwisko).localeCompare(String(b.nazwisko), 'pl');
+        if (cmp !== 0) return cmp;
+        return String(a.imie).localeCompare(String(b.imie), 'pl');
+      });
+      
+      sortedParticipants.forEach((p, idx) => {
+        let pStart = t_item.indywidualneDaty ? p.dataStart : t_item.dataStart;
+        let pKoniec = t_item.indywidualneDaty ? p.dataKoniec : t_item.dataKoniec;
+        let pGodziny = t_item.indywidualneGodziny ? p.godziny : t_item.dlugosc;
+        let startFmt = pStart ? new Date(pStart).toLocaleDateString('pl-PL') : '';
+        let koniecFmt = pKoniec ? new Date(pKoniec).toLocaleDateString('pl-PL') : '';
+
+        html += `
+          <tr>
+            <td style="border: 1px solid #000; padding: 8px; text-align: center;">${idx + 1}</td>
+            <td style="border: 1px solid #000; padding: 8px;">${p.imie}</td>
+            <td style="border: 1px solid #000; padding: 8px;">${p.nazwisko}</td>
+            <td style="border: 1px solid #000; padding: 8px;">${p.dzial}</td>
+            <td style="border: 1px solid #000; padding: 8px; text-align: center;">${startFmt}</td>
+            <td style="border: 1px solid #000; padding: 8px; text-align: center;">${koniecFmt}</td>
+            <td style="border: 1px solid #000; padding: 8px; text-align: center;">${pGodziny || ''}</td>
+          </tr>
+        `;
+      });
+    }
+    html += `</tbody></table></div>`;
+    document.getElementById('printSection').innerHTML = html;
+    window.print();
+  }
+
+  function toggleRozwiniecie(id) {
+    const el = document.getElementById(`details-${id}`);
+    el.style.display = (el.style.display === 'table-row') ? 'none' : 'table-row';
+  }
+
+  function potwierdzUsuniecie(trainingId) {
+    if (confirm(txt('js_delete_confirm') + trainingId + "?")) {
+      document.getElementById('mainLoader').style.display = 'block';
+      document.getElementById('trainingContainer').style.display = 'none';
+      google.script.run.withSuccessHandler(res => {
+        if (res.status === 'success') odswiezTabeleGlowna();
+        else { alert(txt('js_error') + res.message); odswiezTabeleGlowna(); }
+      }).deleteTraining(trainingId);
+    }
+  }
+
+  // ============== WIDOK KARTY PRACOWNIKA ==============
+  let historiaPracownika = [];
+  let sortKartPrac = { pole: 'dataStart', kierunek: 'desc' };
+
+  function pokazWidokPracownikow() {
+    document.getElementById('trainingContainer').style.display = 'none';
+    document.getElementById('employeeContainer').style.display = 'block';
+    document.getElementById('rokFiltrContainer').style.display = 'none';
+    document.getElementById('btnWyszukiwarka').style.display = 'none';
+    document.getElementById('btnWidokPracownika').classList.add('active');
+    if (document.getElementById('employeeTrainingsTableBody').innerHTML.includes('<tr>')) renderujHistoriePracownika();
+  }
+
+  function pokazWidokGłowny() {
+    document.getElementById('employeeContainer').style.display = 'none';
+    document.getElementById('trainingContainer').style.display = 'block';
+    document.getElementById('rokFiltrContainer').style.display = 'flex';
+    document.getElementById('btnWyszukiwarka').style.display = 'block';
+    document.getElementById('btnWidokPracownika').classList.remove('active');
+  }
+
+  function formatujIdKadr(id) {
+    return id.toString().trim().padStart(6, '0');
+  }
+
+  function zaladujSzkoleniaPracownika() {
+    const inputVal = document.getElementById('pracownikWyszukiwarka').value;
+    const match = inputVal.match(/\((.*?)\)/); 
+    if (!match) return;
+    
+    const idPracownika = formatujIdKadr(match[1]);
+    historiaPracownika = []; let sumaGodzin = 0;
+
+    bazaSzkolenCache.forEach(t => {
+      const ucz = t.participants.find(p => p.id === idPracownika);
+      if (ucz) {
+        let dStart = t.indywidualneDaty ? ucz.dataStart : t.dataStart;
+        let dKoniec = t.indywidualneDaty ? ucz.dataKoniec : t.dataKoniec;
+        let godziny = t.indywidualneGodziny ? ucz.godziny : t.dlugosc;
+        sumaGodzin += parseFloat(godziny) || 0;
+        historiaPracownika.push({ id: t.id, tytul: t.tytul, kategoria: t.kategoria, dataStart: dStart, dataKoniec: dKoniec, godziny: godziny });
+      }
+    });
+
+    document.getElementById('employeeStats').innerHTML = `
+      <span class="text-muted small">${txt('js_found_trainings')}</span> <strong class="fs-5 text-dark">${historiaPracownika.length}</strong><br>
+      <span class="text-muted small">${txt('js_total_time')}</span> <strong class="fs-5 text-primary">${sumaGodzin}</strong>
+    `;
+    sortKartPrac = { pole: 'dataStart', kierunek: 'desc' }; 
+    renderujHistoriePracownika();
+  }
+
+  function sortujWidokPracownika(pole) {
+    if (sortKartPrac.pole === pole) sortKartPrac.kierunek = sortKartPrac.kierunek === 'asc' ? 'desc' : 'asc';
+    else { sortKartPrac.pole = pole; sortKartPrac.kierunek = 'asc'; }
+    renderujHistoriePracownika();
+  }
+
+  function renderujHistoriePracownika() {
+    const tbody = document.getElementById('employeeTrainingsTableBody');
+    tbody.innerHTML = '';
+    
+    if (historiaPracownika.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-4">${txt('js_emp_no_trainings')}</td></tr>`; return;
+    }
+
+    historiaPracownika.sort((a, b) => {
+       let valA = a[sortKartPrac.pole] || ''; let valB = b[sortKartPrac.pole] || '';
+       if (sortKartPrac.pole === 'godziny') {
+          valA = parseFloat(valA) || 0; valB = parseFloat(valB) || 0;
+          return sortKartPrac.kierunek === 'asc' ? valA - valB : valB - valA;
+       }
+       if (sortKartPrac.pole === 'dataStart' || sortKartPrac.pole === 'dataKoniec') {
+          valA = new Date(valA).getTime() || 0; valB = new Date(valB).getTime() || 0;
+          return sortKartPrac.kierunek === 'asc' ? valA - valB : valB - valA;
+       }
+       let cmp = valA.toString().localeCompare(valB.toString(), 'pl');
+       return sortKartPrac.kierunek === 'asc' ? cmp : -cmp;
+    });
+
+    historiaPracownika.forEach(s => {
+      let rStart = s.dataStart ? new Date(s.dataStart).toLocaleDateString('pl-PL') : '';
+      let rKoniec = s.dataKoniec ? new Date(s.dataKoniec).toLocaleDateString('pl-PL') : '';
+      let tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><span class="badge bg-secondary">${s.id}</span></td>
+        <td class="fw-bold text-primary">${s.tytul}</td>
+        <td>${s.kategoria}</td>
+        <td>${rStart}</td>
+        <td>${rKoniec}</td>
+        <td class="fw-bold">${s.godziny}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ============== OBSŁUGA KREATORA ==============
+  function toggleIndywidualne() {
+    const isGodziny = document.getElementById('indywidualneGodziny').checked;
+    const isDaty = document.getElementById('indywidualneDaty').checked;
+    const dlugoscInput = document.getElementById('dlugosc');
+    const startInput = document.getElementById('dataStart');
+    const koniecInput = document.getElementById('dataKoniec');
+    const reqGodziny = document.getElementById('req-godziny');
+    const reqDaty = document.getElementById('req-daty');
+
+    if (isGodziny) {
+      dlugoscInput.disabled = true; dlugoscInput.required = false; dlugoscInput.value = '';
+      reqGodziny.style.display = 'none';
+    } else {
+      dlugoscInput.disabled = false; dlugoscInput.required = true;
+      reqGodziny.style.display = 'inline';
+    }
+    if (isDaty) {
+      startInput.disabled = true; startInput.required = false; startInput.value = '';
+      koniecInput.disabled = true; koniecInput.value = '';
+      reqDaty.style.display = 'none';
+    } else {
+      startInput.disabled = false; startInput.required = true;
+      koniecInput.disabled = false;
+      reqDaty.style.display = 'inline';
+    }
+    odswiezKoszykUczestnikow();
+  }
+
+  function aktualizujUczestnika(idPracownika, pole, wartosc) {
+    const p = wybraniUczestnicy.find(u => u.id.toString() === idPracownika.toString());
+    if (p) p[pole] = wartosc;
+  }
+
+  function otworzModalSzkolenia() {
+    currentEditingTrainingId = null; 
+    document.getElementById('trainingForm').reset();
+    document.getElementById('modalSzkoleniaNaglowek').className = "modal-header bg-primary text-white";
+    const podanyRok = document.getElementById('rokFiltr').value || new Date().getFullYear();
+    document.getElementById('modalSzkoleniaTytul').innerHTML = `<i class="bi bi-file-earmark-plus"></i> ${txt('creator_title')} (${podanyRok})`;
+    document.getElementById('btnZapiszSzkolenie').className = "btn btn-success";
+    document.getElementById('btnZapiszSzkolenie').innerHTML = `<i class="bi bi-cloud-upload"></i> ${txt('save_db')}`;
+    toggleIndywidualne(); 
+    wybraniUczestnicy = [];
+    odswiezKoszykUczestnikow();
+    modalSzkolenia.show();
+  }
+
+  function otworzEdycjeSzkolenia(trainingId) {
+    currentEditingTrainingId = trainingId; 
+    const t_item = bazaSzkolenCache.find(item => item.id.toString() === trainingId.toString());
+    if(!t_item) { alert("Błąd krytyczny."); return; }
+
+    document.getElementById('modalSzkoleniaNaglowek').className = "modal-header bg-info text-white";
+    document.getElementById('modalSzkoleniaTytul').innerHTML = `<i class="bi bi-pencil-fill"></i> ID: <strong>${trainingId}</strong>`;
+    document.getElementById('btnZapiszSzkolenie').className = "btn btn-info text-white";
+    document.getElementById('btnZapiszSzkolenie').innerHTML = `<i class="bi bi-check-circle-fill"></i> ${txt('save_db')}`;
+
+    document.getElementById('tytul').value = t_item.tytul;
+    document.getElementById('typInstruktora').value = t_item.typInstruktora;
+    document.getElementById('planowanie').value = t_item.planowanie;
+    document.getElementById('kategoria').value = t_item.kategoria;
+    document.getElementById('formula').value = t_item.formula;
+    document.getElementById('typSzkolenia').value = t_item.typSzkolenia;
+    document.getElementById('certyfikat').value = t_item.certyfikat;
+    document.getElementById('indywidualneGodziny').checked = t_item.indywidualneGodziny;
+    document.getElementById('indywidualneDaty').checked = t_item.indywidualneDaty;
+    toggleIndywidualne();
+    
+    if (!t_item.indywidualneDaty) {
+      document.getElementById('dataStart').value = t_item.dataStart;
+      document.getElementById('dataKoniec').value = t_item.dataKoniec;
+    }
+    if (!t_item.indywidualneGodziny) {
+      document.getElementById('dlugosc').value = t_item.dlugosc;
+    }
+
+    wybraniUczestnicy = t_item.participants.map(p => ({
+      id: p.id, nazwisko: p.nazwisko, imie: p.imie, stanowisko: p.stanowisko, dzial: p.dzial, zmiana: p.zmiana,
+      godziny: p.godziny || '', dataStart: p.dataStart || '', dataKoniec: p.dataKoniec || ''
+    }));
+
+    odswiezKoszykUczestnikow();
+    modalSzkolenia.show();
+  }
+
+  function otworzModalPracownikow() {
+    modalSzkolenia.hide(); 
+    modalPracownikow.show();
+    document.getElementById('wyszukiwarkaPracownikow').value = '';
+    rysujTabeleWybierania();
+    document.getElementById('checkAll').checked = false;
+  }
+
+  function rysujTabeleWybierania() {
+    const tbody = document.getElementById('employeeTableBody');
+    tbody.innerHTML = '';
+    bazaPracownikow.forEach(p => {
+      const juzDodany = wybraniUczestnicy.some(wybrany => wybrany.id.toString() === p.id.toString());
+      let row = document.createElement('tr');
+      row.className = 'employee-select-row';
+      row.setAttribute('data-search', `${p.id} ${p.nazwisko} ${p.imie} ${p.dzial} ${p.stanowisko} ${p.zmiana}`.toLowerCase());
+      row.setAttribute('onclick', 'zaznaczWiersz(this, event)');
+      row.innerHTML = `
+        <td><input type="checkbox" class="pracownik-checkbox" value="${p.id}" ${juzDodany ? 'disabled checked' : ''}></td>
+        <td>${p.id}</td><td>${p.imie}</td><td>${p.nazwisko}</td><td>${p.stanowisko}</td><td>${p.dzial}</td><td>${p.zmiana}</td>
+      `;
+      tbody.appendChild(row);
+    });
+  }
+
+  function zaznaczWiersz(row, event) {
+    if (event.target.tagName === 'INPUT') return; 
+    const cb = row.querySelector('.pracownik-checkbox');
+    if (cb && !cb.disabled) cb.checked = !cb.checked;
+  }
+
+  function filtrujTabelePracownikow() {
+    const fraza = document.getElementById('wyszukiwarkaPracownikow').value.toLowerCase().trim();
+    const slowaKluczowe = fraza.split(/\s+/);
+    const wiersze = document.getElementById('employeeTableBody').getElementsByTagName('tr');
+    for (let i = 0; i < wiersze.length; i++) {
+      let tekstWiersza = wiersze[i].getAttribute('data-search');
+      let pasuje = slowaKluczowe.every(slowo => tekstWiersza.includes(slowo));
+      wiersze[i].style.display = pasuje ? "" : "none";
+    }
+    document.getElementById('checkAll').checked = false; 
+  }
+
+  function toggleWszystkieCheckboxy(source) {
+    const checkboxy = document.querySelectorAll('.pracownik-checkbox:not(:disabled)');
+    checkboxy.forEach(cb => {
+      if (cb.closest('tr').style.display !== 'none') cb.checked = source.checked;
+    });
+  }
+
+  function zatwierdzUczestnikow() {
+    const checkboxy = document.querySelectorAll('.pracownik-checkbox:checked:not(:disabled)');
+    checkboxy.forEach(cb => {
+      const id = cb.value;
+      const pracownik = bazaPracownikow.find(p => p.id.toString() === id.toString());
+      if (pracownik && !wybraniUczestnicy.some(wybrany => wybrany.id.toString() === id.toString())) {
+        wybraniUczestnicy.push({...pracownik, godziny: '', dataStart: '', dataKoniec: ''}); 
+      }
+    });
+    sortowanieKoszyka = { pole: 'nazwisko', kierunek: 'asc' };
+    sortujWybranychUczestnikow();
+    modalPracownikow.hide();
+    modalSzkolenia.show();
+  }
+
+  function anulujWybieraniePracownikow() {
+    modalPracownikow.hide();
+    modalSzkolenia.show();
+  }
+
+  function sortujWybranychUczestnikow() {
+    const pole = sortowanieKoszyka.pole;
+    if (!pole) return;
+    wybraniUczestnicy.sort((a, b) => {
+      let valA = a[pole] || ''; let valB = b[pole] || '';
+      if (pole === 'id' || pole === 'godziny') {
+        valA = parseFloat(valA) || 0; valB = parseFloat(valB) || 0;
+        return sortowanieKoszyka.kierunek === 'asc' ? valA - valB : valB - valA;
+      }
+      let cmp = valA.toString().localeCompare(valB.toString(), 'pl');
+      return sortowanieKoszyka.kierunek === 'asc' ? cmp : -cmp;
+    });
+  }
+
+  function zmienSortowanie(pole) {
+    if (sortowanieKoszyka.pole === pole) sortowanieKoszyka.kierunek = sortowanieKoszyka.kierunek === 'asc' ? 'desc' : 'asc';
+    else { sortowanieKoszyka.pole = pole; sortowanieKoszyka.kierunek = 'asc'; }
+    sortujWybranychUczestnikow();
+    odswiezKoszykUczestnikow();
+  }
+
+  function ikonaSortowania(pole) {
+    if (sortowanieKoszyka.pole !== pole) return '<i class="bi bi-arrow-down-up text-muted ms-1" style="font-size: 0.8em;"></i>';
+    return sortowanieKoszyka.kierunek === 'asc' ? '<i class="bi bi-arrow-down ms-1"></i>' : '<i class="bi bi-arrow-up ms-1"></i>';
+  }
+
+  function odswiezKoszykUczestnikow() {
+    document.getElementById('licznikUczestnikow').innerText = wybraniUczestnicy.length;
+    const isGodziny = document.getElementById('indywidualneGodziny').checked;
+    const isDaty = document.getElementById('indywidualneDaty').checked;
+    
+    let theadHtml = `<tr>
+      <th class="sortable-th text-primary" onclick="zmienSortowanie('id')">ID ${ikonaSortowania('id')}</th>
+      <th class="sortable-th text-primary" onclick="zmienSortowanie('imie')">${txt('name')} ${ikonaSortowania('imie')}</th>
+      <th class="sortable-th text-primary" onclick="zmienSortowanie('nazwisko')">${txt('surname')} ${ikonaSortowania('nazwisko')}</th>
+      <th class="sortable-th text-primary" onclick="zmienSortowanie('dzial')">${txt('department')} ${ikonaSortowania('dzial')}</th>`;
+      
+    if (isDaty) theadHtml += `
+      <th class="sortable-th text-primary" style="width: 140px;" onclick="zmienSortowanie('dataStart')">${txt('start_date')} * ${ikonaSortowania('dataStart')}</th>
+      <th class="sortable-th text-primary" style="width: 140px;" onclick="zmienSortowanie('dataKoniec')">${txt('end_date')} ${ikonaSortowania('dataKoniec')}</th>`;
+      
+    if (isGodziny) theadHtml += `
+      <th class="sortable-th text-primary" style="width: 100px;" onclick="zmienSortowanie('godziny')">${txt('time_h')} * ${ikonaSortowania('godziny')}</th>`;
+      
+    theadHtml += `<th>${txt('js_options')}</th></tr>`;
+
+    document.getElementById('tabelaKoszykaHead').innerHTML = theadHtml;
+    const tbody = document.getElementById('tbodyKoszyka');
+    tbody.innerHTML = '';
+    
+    if (wybraniUczestnicy.length === 0) {
+      document.getElementById('pustyKoszykInfo').style.display = 'block';
+      document.getElementById('tabelaKoszyka').style.display = 'none';
+    } else {
+      document.getElementById('pustyKoszykInfo').style.display = 'none';
+      document.getElementById('tabelaKoszyka').style.display = 'table';
+      
+      wybraniUczestnicy.forEach(p => {
+        let cols = `<td>${p.id}</td><td>${p.imie}</td><td>${p.nazwisko}</td><td>${p.dzial}</td>`;
+        if (isDaty) {
+          cols += `<td><input type="date" class="form-control form-control-sm border-primary" value="${p.dataStart}" onchange="aktualizujUczestnika('${p.id}', 'dataStart', this.value); document.getElementById('koniec_${p.id}').value = this.value; aktualizujUczestnika('${p.id}', 'dataKoniec', this.value);" required></td>`;
+          cols += `<td><input type="date" id="koniec_${p.id}" class="form-control form-control-sm border-primary" value="${p.dataKoniec}" onchange="aktualizujUczestnika('${p.id}', 'dataKoniec', this.value)"></td>`;
+        }
+        if (isGodziny) {
+          cols += `<td><input type="number" class="form-control form-control-sm border-primary" min="1" value="${p.godziny}" onchange="aktualizujUczestnika('${p.id}', 'godziny', this.value)" required></td>`;
+        }
+        cols += `<td><button type="button" class="btn btn-sm btn-danger" onclick="usunZKoszyka('${p.id}')"><i class="bi bi-trash"></i></button></td>`;
+        let tr = document.createElement('tr');
+        tr.innerHTML = cols;
+        tbody.appendChild(tr);
+      });
+    }
+  }
+
+  function usunZKoszyka(idDoUsuniecia) {
+    wybraniUczestnicy = wybraniUczestnicy.filter(p => p.id.toString() !== idDoUsuniecia.toString());
+    odswiezKoszykUczestnikow();
+  }
+
+  function zapiszSzkolenie() {
+    const form = document.getElementById('trainingForm');
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    
+    const dStart = document.getElementById('dataStart').value;
+    const dKoniec = document.getElementById('dataKoniec').value;
+    const isGodziny = document.getElementById('indywidualneGodziny').checked;
+    const isDaty = document.getElementById('indywidualneDaty').checked;
+
+    if (!isDaty && dKoniec && dStart > dKoniec) { alert(txt('js_date_error')); return; }
+    if (isDaty) {
+      for(let p of wybraniUczestnicy) {
+        if (p.dataKoniec && p.dataStart > p.dataKoniec) { alert(`${p.imie} ${p.nazwisko}` + txt('js_date_error_emp')); return; }
+      }
+    }
+
+    const wybranyRok = document.getElementById('rokFiltr').value;
+
+    const formData = {
+      tytul: document.getElementById('tytul').value,
+      typInstruktora: document.getElementById('typInstruktora').value,
+      planowanie: document.getElementById('planowanie').value,
+      kategoria: document.getElementById('kategoria').value,
+      formula: document.getElementById('formula').value,
+      typSzkolenia: document.getElementById('typSzkolenia').value,
+      dataStart: document.getElementById('dataStart').value,
+      dataKoniec: document.getElementById('dataKoniec').value,
+      dlugosc: document.getElementById('dlugosc').value,
+      certyfikat: document.getElementById('certyfikat').value,
+      indywidualneGodziny: isGodziny,
+      indywidualneDaty: isDaty
+    };
+
+    const btn = document.getElementById('btnZapiszSzkolenie');
+    btn.disabled = true;
+    const staryTextBtn = btn.innerHTML;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> ${txt('js_processing')}`;
+
+    const handlerSukcesu = function(res) {
+      modalSzkolenia.hide();
+      btn.disabled = false;
+      btn.innerHTML = staryTextBtn;
+      if(res.status === 'success') {
+        alert(currentEditingTrainingId ? txt('js_saved') : txt('js_saved_new') + res.trainingId);
+        odswiezTabeleGlowna();
+      } else alert(txt('js_error') + res.message);
+    };
+
+    const handlerBledu = function(error) {
+      alert(txt('js_error') + error.message);
+      btn.disabled = false;
+      btn.innerHTML = staryTextBtn;
+    };
+
+    if (currentEditingTrainingId === null) {
+      google.script.run.withSuccessHandler(handlerSukcesu).withFailureHandler(handlerBledu).saveTraining(formData, wybraniUczestnicy, wybranyRok); 
+    } else {
+      google.script.run.withSuccessHandler(handlerSukcesu).withFailureHandler(handlerBledu).updateTraining(currentEditingTrainingId, formData, wybraniUczestnicy);
+    }
+  }
+
+  function pobierzRaportESG() {
+    const rok = prompt(txt('js_prompt_year'), document.getElementById('rokFiltr').value || new Date().getFullYear());
+    if (!rok) return;
+
+    const btn = document.getElementById('btnEksport');
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> ${txt('js_generating')}`;
+    
+    google.script.run
+      .withSuccessHandler(function(res) {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="bi bi-file-earmark-excel"></i> ${txt('export_year')}`;
+        
+        if (res.status === 'success') {
+          const url = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64," + res.base64;
+          const a = document.createElement("a");
+          a.href = url; a.download = res.fileName;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        } else alert(res.message);
+      })
+      .withFailureHandler(function(error) {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="bi bi-file-earmark-excel"></i> ${txt('export_year')}`;
+        alert(txt('js_error') + error.message);
+      })
+      .wygenerujRaportExcel(rok); 
+  }
+
+  // ================= IMPORT EXCELA OD LEKTORA =================
+  function otworzModalImportu() {
+    document.getElementById('importFileInput').value = '';
+    document.getElementById('sheetSelectDiv').style.display = 'none';
+    document.getElementById('sheetProcessDiv').style.display = 'none';
+    document.getElementById('importResultsArea').style.display = 'none';
+    document.getElementById('btnZapiszImport').style.display = 'none';
+    
+    const trSelect = document.getElementById('importTargetTraining');
+    trSelect.innerHTML = '<option value="NEW" class="text-success fw-bold">➕ UTWÓRZ NOWE SZKOLENIE Z TĄ LISTĄ</option>';
+    
+    // Filtrujemy tylko szkolenia z bieżącego roku, ew. wszystkie z indywidualnymi godzinami
+    const wybranyRok = document.getElementById('rokFiltr').value;
+    bazaSzkolenCache.forEach(t => {
+       if(String(t.id).startsWith(`TR/${wybranyRok}/`)) {
+           trSelect.innerHTML += `<option value="${t.id}">${t.id} - ${t.tytul}</option>`;
+       }
+    });
+
+    modalImportu.show();
+  }
+
+  // Odczyt plików Excela przez FileReader i SheetJS
+  function wczytajZPliku() {
+    const fileInput = document.getElementById('importFileInput');
+    if(fileInput.files.length === 0) return;
+    
+    const file = fileInput.files[0];
+    const reader = new FileReader();
+    
+    reader.onload = function(e) {
+      const data = new Uint8Array(e.target.result);
+      // parse workbook
+      const workbook = XLSX.read(data, {type: 'array'});
+      const sSelect = document.getElementById('importSheetSelect');
+      sSelect.innerHTML = '';
+      workbook.SheetNames.forEach(name => {
+         sSelect.innerHTML += `<option value="${name}">${name}</option>`;
+      });
+      
+      document.getElementById('sheetSelectDiv').style.display = 'block';
+      document.getElementById('sheetProcessDiv').style.display = 'block';
+      // Trzymamy zeszyt w pamięci, żeby za chwilę przeczytać wybrany arkusz
+      window.importWorkbook = workbook; 
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function przetworzArkusz() {
+    const sheetName = document.getElementById('importSheetSelect').value;
+    const worksheet = window.importWorkbook.Sheets[sheetName];
+    // Ładujemy dane jako wiersze (tablica tablic)
+    const json = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+    
+    zaimportowanyExcelWIP = [];
+
+    // Odtworzona logika z Pythona
+    json.forEach(row => {
+      let name = row[2]; // Zgodnie z Python: row[2] to nazwisko z pliku
+      if(name && typeof name === 'string') {
+         let nLower = name.toLowerCase().trim();
+         if(!["nazwisko i imię", "nazwisko i imie", "lp.", "imię i nazwisko"].includes(nLower)) {
+            // W Pythonie: row[3:15] to komórki z frekwencją
+            let attendanceCells = row.slice(3, 15);
+            let attended = attendanceCells.reduce((sum, val) => {
+               let num = parseFloat(val);
+               return sum + (isNaN(num) ? 0 : num);
+            }, 0);
+            
+            if(attended > 0) {
+               zaimportowanyExcelWIP.push({ originalName: name.trim(), hours: attended });
+            }
+         }
+      }
+    });
+
+    renderujTabeleWydobycia(zaimportowanyExcelWIP);
+  }
+
+  function renderujTabeleWydobycia(data) {
+    const tbody = document.getElementById('importTableBody');
+    tbody.innerHTML = '';
+    
+    if(data.length === 0) {
+       tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4">Brak poprawnych danych obecności w tym arkuszu.</td></tr>';
+       document.getElementById('importResultsArea').style.display = 'block';
+       document.getElementById('btnZapiszImport').style.display = 'none';
+       return;
+    }
+
+    data.forEach(item => {
+       // FUZZY MATCHING BAZY KADR
+       let fName = item.originalName.toLowerCase().replace(/\s+/g, '');
+       let matches = bazaPracownikow.filter(p => {
+           let p1 = (String(p.nazwisko) + String(p.imie)).toLowerCase().replace(/\s+/g, '');
+           let p2 = (String(p.imie) + String(p.nazwisko)).toLowerCase().replace(/\s+/g, '');
+           return fName === p1 || fName === p2;
+       });
+       
+       let statusHtml = '';
+       let inputValue = '';
+       let inputClass = 'form-control form-control-sm fw-bold border-primary import-emp-input';
+       
+       if(matches.length === 1) {
+           statusHtml = '<i class="bi bi-check-circle-fill text-success fs-5" title="Dopasowano automatycznie"></i>';
+           inputValue = `${matches[0].nazwisko} ${matches[0].imie} (${matches[0].id})`;
+           inputClass += ' is-valid';
+       } else if (matches.length > 1) {
+           statusHtml = '<i class="bi bi-exclamation-circle-fill text-warning fs-5" title="Wiele dopasowań"></i>';
+           inputClass += ' is-warning';
+       } else {
+           statusHtml = '<i class="bi bi-x-circle-fill text-danger fs-5" title="Brak dopasowania"></i>';
+           inputClass += ' is-invalid';
+       }
+       
+       let tr = document.createElement('tr');
+       tr.innerHTML = `
+          <td class="text-center">${statusHtml}</td>
+          <td class="text-secondary fw-bold">${item.originalName}</td>
+          <td>
+             <input type="text" class="${inputClass}" list="pracownicyDatalist" value="${inputValue}" placeholder="Wybierz osobę z bazy ręcznie..." data-hours="${item.hours}" onchange="walidujImportInput(this)">
+          </td>
+          <td class="text-center text-primary fs-5 fw-bold">${item.hours}</td>
+          <td class="text-center">
+             <button class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button>
+          </td>
+       `;
+       tbody.appendChild(tr);
+    });
+
+    document.getElementById('importResultsArea').style.display = 'block';
+    document.getElementById('btnZapiszImport').style.display = 'block';
+  }
+
+  function walidujImportInput(input) {
+     if(input.value.match(/\((.*?)\)/)) {
+        input.classList.remove('is-invalid', 'is-warning');
+        input.classList.add('is-valid');
+     } else {
+        input.classList.remove('is-valid', 'is-warning');
+        input.classList.add('is-invalid');
+     }
+  }
+
+  function zapiszImport() {
+     let target = document.getElementById('importTargetTraining').value;
+     let rows = document.querySelectorAll('#importTableBody tr');
+     let payload = [];
+     let error = false;
+
+     rows.forEach(tr => {
+         let inp = tr.querySelector('.import-emp-input');
+         if(inp) {
+             let match = inp.value.match(/\((.*?)\)/);
+             if(!match) {
+                 inp.classList.add('is-invalid');
+                 error = true;
+             } else {
+                 inp.classList.remove('is-invalid');
+                 let idPrac = match[1];
+                 let hrs = parseFloat(inp.getAttribute('data-hours'));
+                 payload.push({id: idPrac, godziny: hrs});
+             }
+         }
+     });
+
+     if(error) {
+         alert("Musisz poprawić podświetlone na czerwono pozycje (wybrać pracownika z listy), zanim zapiszesz!");
+         return;
+     }
+     if(payload.length === 0) {
+         alert("Nie ma kogo zapisać!");
+         return;
+     }
+
+     if(target === 'NEW') {
+         // Otwiera kreatora i wypełnia listę uczestników
+         modalImportu.hide();
+         wybraniUczestnicy = [];
+         payload.forEach(item => {
+             let prac = bazaPracownikow.find(p => p.id === formatujIdKadr(item.id));
+             if(prac) {
+                 wybraniUczestnicy.push({...prac, godziny: item.godziny, dataStart: '', dataKoniec: ''});
+             }
+         });
+         
+         otworzModalSzkolenia();
+         document.getElementById('indywidualneGodziny').checked = true;
+         toggleIndywidualne();
+         
+     } else {
+         // Zapisuje bezpośrednio do wskazanego starego szkolenia
+         const btn = document.getElementById('btnZapiszImport');
+         btn.disabled = true;
+         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Wysyłam do bazy...';
+         
+         google.script.run.withSuccessHandler(res => {
+             btn.disabled = false;
+             btn.innerHTML = '<i class="bi bi-check2-all"></i> Zatwierdź i Zapisz';
+             if(res.status === 'success') {
+                 alert("Sukces! Godziny pomyślnie dopisane do szkolenia " + target);
+                 modalImportu.hide();
+                 odswiezTabeleGlowna();
+             } else {
+                 alert("Błąd backendu: " + res.message);
+             }
+         }).dopiszGodzinyDoSzkolenia(target, payload);
+     }
+  }
+</script>
+</body>
+</html>
