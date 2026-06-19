@@ -26,7 +26,7 @@ System pozwala na kompleksowe planowanie szkoleń, śledzenie historii pracownik
 
 Z racji tego, że system oparty jest o infrastrukturę Google, nie wymaga zewnętrznego hostingu ani serwera.
 
-1. Utwórz nowy arkusz w Google Sheets (to będzie Twoja baza danych).
+1. Utwórz nowy arkusz w Google Sheets lub zaimportuj w Google Sheet dołączony do repo DB_szkolenia.ods (to będzie Twoja baza danych).
 2. W arkuszu przygotuj zakładki o nazwach: `Szkolenia`, `Uczestnicy_Szkolen`, `Pracownicy`, `Slowniki`, `Tlumacz`, `Uprawnieni`.
 3. Z górnego menu arkusza wybierz **Rozszerzenia -> Apps Script**.
 4. W edytorze kodu utwórz pliki zgodnie ze strukturą tego repozytorium:
